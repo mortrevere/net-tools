@@ -76,64 +76,35 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
 
-#include <sys/types.h>
-#include <sys/time.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
-#include <netinet/in.h>
-#include <netdb.h>
-#include <signal.h>
 #include <errno.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <signal.h>
 
 /******************************************************* COMPILATION OPTIONS */
 
 /* whether SIGHUP can display the tunnel status. comment out to disable. */
 #define SIGNAL_TO_STATUS 1
 
-/* whether SNOOP option is compiled in. comment out to disable. */
-#define MAY_SNOOP_TRAFFIC 1
-
-/* whether to drop all output or allow some. comment out to disable.
- * if not set, both previous defines are also disabled.
- */
-#define ALLOW_SOME_OUTPUT 1
-
 /* default connexion. */
 #define LHOST "localhost" /* this really means 127.0.0.1, thus no network! */
 #define LPORT "2023"
 /* DHOST: <same as chosen LHOST> */
-#define DPORT "23"        /* telnet port */
+#define DPORT "23" /* telnet port */
 
 /*************************************************************** USEFUL DEFS */
-
-#if !defined(ALLOW_SOME_OUTPUT)
-/* maybe these function returns should be checked for errors. */
-#define fputc(c,f)
-#define fputs(s,f)
-#define fprintf(f,a...) /* GCC only. */
-#define fwrite(b,s,n,f)
-#define perror(s)
-#define herror(s)
-#define gettimeofday(x,y)
-
-/* definition coherency.
- */
-#if defined(MAY_SNOOP_TRAFFIC)
-#undef MAY_SNOOP_TRAFFIC
-#endif /* MAY_SNOOP_TRAFFIC */
-
-#if defined(SIGNAL_TO_STATUS)
-#undef SIGNAL_TO_STATUS
-#endif /* SIGNAL_TO_STATUS */
-#endif /* ALLOW_SOME_OUTPUT */
 
 /* very theoretical IP packet max size is 2^16==65536.
  * must be a multiple of sizeof(long) for the scramble loop.
  */
-#define BUFFER_SIZE (1<<16)
+#define BUFFER_SIZE (1 << 16)
 
 /* maximum number of simultaneous connexions.
    could be a moved as an option with a default?
@@ -146,28 +117,22 @@
 #define LOG "[tunnel:%d] "
 
 /* Left Circular Shift on a long by b bits. */
-#define LCS(l,b) ((l<<b)|(((1<<b)-1)&(l>>(8*sizeof(long)-b))))
+#define LCS(l, b) ((l << b) | (((1 << b) - 1) & (l >> (8 * sizeof(long) - b))))
 
 /* some convenient typedef that I like. */
-typedef enum { false, true } boolean;
-typedef char * string;
+typedef enum
+{
+  false,
+  true
+} boolean;
+typedef char *string;
 
 /******************************************************************* GLOBALS */
 
-static boolean verbose = false;      /* -v/-q (verbose => log) */
-
-#if (defined(ALLOW_SOME_OUTPUT))
-
-static boolean silent = false;       /* -s to be very silent... */
-
-#else
-
-static boolean silent = true;
-
-#endif /* ALLOW_SOME_OUTPUT */
-
-static boolean debug  = false;       /* -d (debug => verbose) */
-static boolean log    = false;       /* -l */
+static boolean verbose = false; /* -v/-q (verbose => log) */
+static boolean silent = false;  /* -s to be very silent... */
+static boolean debug = false;   /* -d (debug => verbose) */
+static boolean log = false;     /* -l */
 
 /* optionnal scramble with a simple xor. easy because stateless. */
 static unsigned long scramble = 0x0; /* set with -p pass or -x long */
@@ -176,9 +141,7 @@ static unsigned long scramble = 0x0; /* set with -p pass or -x long */
 static int pid;
 
 /* echo instead of tunnel */
-static boolean echo   = false;
-
-#if defined(MAY_SNOOP_TRAFFIC)
+static boolean echo = false;
 
 /* Whether to snoop the INCOMING stream.
  * This is intended as a way to log commands if the tunnel
@@ -190,17 +153,15 @@ static boolean echo   = false;
  * May insure that the snoop data are 'readable', by switching
  * unprintable characteres to '.' with the -r option.
  */
-static boolean snoop = false;        /* -L (snoop => log) */
-static boolean printable = false;    /* -r */
+static boolean snoop = false;     /* -L (snoop => log) */
+static boolean printable = false; /* -r */
 
 /* size of snoop buffer. default is no buffer. */
-static int snoopsize = 0;            /* -b size (=> snoop) */
-
-#endif /* MAY_SNOOP_TRAFFIC */
+static int snoopsize = 0; /* -b size (=> snoop) */
 
 /********************************************************* SOCKET CONNEXIONS */
 
-static int serv_socket;              /* server socket which is listenned to. */
+static int serv_socket; /* server socket which is listenned to. */
 
 static struct sockaddr_in serv_addr; /* fixed server address */
 static struct sockaddr_in dest_addr; /* fixed destination address */
@@ -208,8 +169,8 @@ static struct sockaddr_in dest_addr; /* fixed destination address */
 /* describe a current connexion handled by the process. */
 struct socket_connexion
 {
-  boolean open;                   /* whether it is open/available */
-  int index;                      /* index in array for log messages */
+  boolean open; /* whether it is open/available */
+  int index;    /* index in array for log messages */
 
   /* connexion descriptor: a pair of socket and addr
    */
@@ -218,31 +179,26 @@ struct socket_connexion
   boolean client_r;               /* ready to read */
   boolean client_w;               /* ready to write */
 
-  struct sockaddr_in dest_addr;   /* to destination side */
-  int dest;                       /* dest socket */
-  boolean dest_r;                 /* ready to read */
-  boolean dest_w;                 /* ready to write */
+  struct sockaddr_in dest_addr; /* to destination side */
+  int dest;                     /* dest socket */
+  boolean dest_r;               /* ready to read */
+  boolean dest_w;               /* ready to write */
 
   /* statistics for the connexion
    */
-  int requests;                   /* amount of requests client->dest. */
-  int nreq;                       /* number of request paquets. */
-  int responses;                  /* amount of responses dest->client. */
-  int nres;                       /* number of response paquets. */
-
-#if defined(MAY_SNOOP_TRAFFIC)
+  int requests;  /* amount of requests client->dest. */
+  int nreq;      /* number of request paquets. */
+  int responses; /* amount of responses dest->client. */
+  int nres;      /* number of response paquets. */
 
   /* snoop buffer for incoming traffic.
    */
-  int sindex;                     /* index in the buffer. */
-  char * snooped;                 /* buffer of snooped stuff. [snoopsize] */
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
+  int sindex;    /* index in the buffer. */
+  char *snooped; /* buffer of snooped stuff. [snoopsize] */
 };
 
 /* array of current connexions. */
-static struct socket_connexion * connexions;
+static struct socket_connexion *connexions;
 
 /* maximum number of allowed connexions. */
 static int max_connexions = DEFAULT_MAX_CONNEXIONS;
@@ -270,41 +226,38 @@ static void initialize_connexions(void)
   max_index_of_connexions = 0;
 
   connexions = (struct socket_connexion *)
-    malloc(max_connexions*sizeof(struct socket_connexion));
+      malloc(max_connexions * sizeof(struct socket_connexion));
 
-  if (!connexions) abort();
+  if (!connexions)
+    abort();
 
-  for (i=0; i<max_connexions; i++)
+  for (i = 0; i < max_connexions; i++)
   {
-    connexions[i].open    = false;
-    connexions[i].index   = i;
+    connexions[i].open = false;
+    connexions[i].index = i;
 
-#if defined(MAY_SNOOP_TRAFFIC)
-
-    connexions[i].sindex  = 0;
-    connexions[i].snooped = snoopsize? (char *) malloc(snoopsize): NULL;
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
+    connexions[i].sindex = 0;
+    connexions[i].snooped = snoopsize ? (char *)malloc(snoopsize) : NULL;
   }
 }
 
 static void set_max_index_of_connexions(int index)
 {
-  while (index>=0 && !connexions[index].open)
+  while (index >= 0 && !connexions[index].open)
     index--;
-  max_index_of_connexions = index+1;
+  max_index_of_connexions = index + 1;
 }
 
 /* returns a free chunk if any, or NULL */
-static struct socket_connexion * available_connexion(void)
+static struct socket_connexion *available_connexion(void)
 {
   int i;
-  for (i=0; i<max_connexions; i++)
+  for (i = 0; i < max_connexions; i++)
     if (!connexions[i].open)
       return &connexions[i];
 
-  if (verbose) fputs("no more available connexions\n", stderr);
+  if (verbose)
+    fputs("no more available connexions\n", stderr);
 
   return NULL;
 }
@@ -323,10 +276,8 @@ static void shutdown_socket(int socket)
     perror("close()");
 }
 
-#if defined(MAY_SNOOP_TRAFFIC)
-
 /* actually prints a buffer to stderr. */
-static void print_snooped_buffer(char * buffer, int size, int src)
+static void print_snooped_buffer(char *buffer, int size, int src)
 {
   fprintf(stderr, LOG "%d #%d: ", pid, src, size);
   fwrite(buffer, 1, size, stderr);
@@ -334,18 +285,18 @@ static void print_snooped_buffer(char * buffer, int size, int src)
 }
 
 /* flush snooped data to log and reset. */
-static void flush_and_reset_snooped(struct socket_connexion * scp)
+static void flush_and_reset_snooped(struct socket_connexion *scp)
 {
   if (snoop && scp->snooped)
   {
     if (printable) /* switch non printable characters to '.' */
     {
       int i;
-      for (i=0; i<scp->sindex; i++)
+      for (i = 0; i < scp->sindex; i++)
       {
-	register char ci = scp->snooped[i];
-	if ((ci<32 && ci!=10) || (ci > 126)) /* keep 10 + 32..126 */
-	  scp->snooped[i] = '.';
+        register char ci = scp->snooped[i];
+        if ((ci < 32 && ci != 10) || (ci > 126)) /* keep 10 + 32..126 */
+          scp->snooped[i] = '.';
       }
     }
     print_snooped_buffer(scp->snooped, scp->sindex, scp->client);
@@ -354,23 +305,23 @@ static void flush_and_reset_snooped(struct socket_connexion * scp)
 }
 
 /* keep or print snooped data */
-static void append_snooped_data(struct socket_connexion * scp,
-				char * buffer, int size)
+static void append_snooped_data(struct socket_connexion *scp,
+                                char *buffer, int size)
 {
   if (scp->snooped)
   {
     /* pre-empty buffer is not large enough */
-    if (scp->sindex && scp->sindex+size>=snoopsize)
+    if (scp->sindex && scp->sindex + size >= snoopsize)
       flush_and_reset_snooped(scp);
 
     /* put in snoop buffer */
     while (size)
     {
-      while (scp->sindex<snoopsize && size)
-	scp->snooped[scp->sindex++] = *buffer++, size--;
+      while (scp->sindex < snoopsize && size)
+        scp->snooped[scp->sindex++] = *buffer++, size--;
 
-      if (scp->sindex==snoopsize)
-	flush_and_reset_snooped(scp);
+      if (scp->sindex == snoopsize)
+        flush_and_reset_snooped(scp);
     }
   }
   else /* no buffer */
@@ -379,26 +330,20 @@ static void append_snooped_data(struct socket_connexion * scp,
   }
 }
 
-#endif /* MAY_SNOOP_TRAFFIC */
-
 /* close the connexion. */
-static void shutdown_connexion(struct socket_connexion * scp, string why)
+static void shutdown_connexion(struct socket_connexion *scp, string why)
 {
   if (scp->open)
   {
     if (debug)
       fprintf(stderr, "shuting down %d and %d\n", scp->client, scp->dest);
 
-    if (scp->client!=-1)
+    if (scp->client != -1)
       shutdown_socket(scp->client);
-
-#if defined(MAY_SNOOP_TRAFFIC)
 
     flush_and_reset_snooped(scp);
 
-#endif /* MAY_SNOOP_TRAFFIC */
-
-    if (scp->dest!=-1 && scp->dest!=scp->client)
+    if (scp->dest != -1 && scp->dest != scp->client)
       shutdown_socket(scp->dest);
 
     if (log)
@@ -407,59 +352,60 @@ static void shutdown_connexion(struct socket_connexion * scp, string why)
       gettimeofday(&tv, NULL);
       /* close could show collected statistics? */
       fprintf(stderr,
-	      LOG "#%d (%d,%d) %s 0x%08x:%d/0x%08x:%d at %ld.%06ld\n",
-	      pid, scp->index, scp->client, scp->dest, why,
-	      ntohl(scp->client_addr.sin_addr.s_addr),
-	      ntohs(scp->client_addr.sin_port),
-	      ntohl(scp->dest_addr.sin_addr.s_addr),
-	      ntohs(scp->dest_addr.sin_port),
-	      tv.tv_sec, tv.tv_usec);
+              LOG "#%d (%d,%d) %s 0x%08x:%d/0x%08x:%d at %ld.%06ld\n",
+              pid, scp->index, scp->client, scp->dest, why,
+              ntohl(scp->client_addr.sin_addr.s_addr),
+              ntohs(scp->client_addr.sin_port),
+              ntohl(scp->dest_addr.sin_addr.s_addr),
+              ntohs(scp->dest_addr.sin_port),
+              tv.tv_sec, tv.tv_usec);
     }
 
-    scp->open   = false;
+    scp->open = false;
     scp->client = -1;
-    scp->dest   = -1;
+    scp->dest = -1;
     number_of_connexions--;
-    if (max_index_of_connexions == scp->index+1)
+    if (max_index_of_connexions == scp->index + 1)
       set_max_index_of_connexions(scp->index);
   }
 }
 
-
 /* connect the connexion or close the client
  */
-static void open_connexion_or_shutdown(struct socket_connexion * scp)
+static void open_connexion_or_shutdown(struct socket_connexion *scp)
 {
   /* let's be optimistic... */
-  scp->open      = true;
-  scp->client_r  = false;
-  scp->client_w  = false;
-  scp->dest_r    = false;
-  scp->dest_w    = false;
-  scp->requests  = 0;
-  scp->nreq      = 0;
+  scp->open = true;
+  scp->client_r = false;
+  scp->client_w = false;
+  scp->dest_r = false;
+  scp->dest_w = false;
+  scp->requests = 0;
+  scp->nreq = 0;
   scp->responses = 0;
-  scp->nres      = 0;
+  scp->nres = 0;
 
   number_of_connexions++;
   total_number_of_connexions++;
   if (scp->index >= max_index_of_connexions)
-    max_index_of_connexions = scp->index+1;
+    max_index_of_connexions = scp->index + 1;
 
   /* something to do if tunnel, nothing on echo. */
-  if (scp->dest==-1)
+  if (scp->dest == -1)
   {
-    if ((scp->dest = socket(AF_INET, SOCK_STREAM,  0))==-1)
+    if ((scp->dest = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
-      if (verbose) perror("socket()");
+      if (verbose)
+        perror("socket()");
       shutdown_connexion(scp, "error[socket]");
       return;
     }
 
     if (connect(scp->dest,
-		(struct sockaddr *) &scp->dest_addr, sizeof(struct sockaddr)))
+                (struct sockaddr *)&scp->dest_addr, sizeof(struct sockaddr)))
     {
-      if (verbose) perror("connect()");
+      if (verbose)
+        perror("connect()");
       shutdown_connexion(scp, "error[connect]");
       return;
     }
@@ -471,12 +417,12 @@ static void open_connexion_or_shutdown(struct socket_connexion * scp)
     gettimeofday(&tv, NULL);
 
     fprintf(stderr, LOG "#%d (%d,%d) open 0x%08x:%d/0x%08x:%d at %ld.%06ld\n",
-	    pid, scp->index, scp->client, scp->dest,
-	    ntohl(scp->client_addr.sin_addr.s_addr),
-	    ntohs(scp->client_addr.sin_port),
-	    ntohl(scp->dest_addr.sin_addr.s_addr),
-	    ntohs(scp->dest_addr.sin_port),
-	    tv.tv_sec, tv.tv_usec);
+            pid, scp->index, scp->client, scp->dest,
+            ntohl(scp->client_addr.sin_addr.s_addr),
+            ntohs(scp->client_addr.sin_port),
+            ntohl(scp->dest_addr.sin_addr.s_addr),
+            ntohs(scp->dest_addr.sin_port),
+            tv.tv_sec, tv.tv_usec);
   }
 }
 
@@ -490,78 +436,81 @@ static void open_connexion_or_shutdown(struct socket_connexion * scp)
 static boolean transmit(
     int src,
     int dst,
-    int * amount,
-    int * n,
-    struct socket_connexion * scp)
+    int *amount,
+    int *n,
+    struct socket_connexion *scp)
 {
   static char buffer[BUFFER_SIZE]; /* yes, static, thus not on stack. */
   ssize_t rsize, wsize;
 
-  if ((rsize = read(src, buffer, BUFFER_SIZE))==-1)
+  if ((rsize = read(src, buffer, BUFFER_SIZE)) == -1)
   {
-    if (verbose) perror("read()");
+    if (verbose)
+      perror("read()");
     return false;
   }
 
   if (debug)
-    fprintf(stderr, "transmit() %d -> %d, size=%d\n", src, dst, rsize);
+    fprintf(stderr, "transmit() %d -> %d, size=%d\n", src, dst, (int)rsize);
 
   /* it may happen that an empty packet comes??? */
-  if (rsize==0)
+  if (rsize == 0)
   {
-    if (verbose) fputs("no data to read...\n", stderr);
+    if (verbose)
+      fputs("no data to read...\n", stderr);
     return false;
   }
 
-#if defined(MAY_SNOOP_TRAFFIC)
-
-  if (scp) append_snooped_data(scp, buffer, rsize);
-
-#endif /* MAY_SNOOP_TRAFFIC */
+  if (scp)
+    append_snooped_data(scp, buffer, rsize);
 
   /* Optional scrambling (a simple 32 bits xor against a constant).
    * It is not intended as a cypher, but just to prevent basic dumps.
    */
   if (scramble)
   {
-    char * ptr = buffer;
-    for (; ptr < buffer+rsize; ptr+=sizeof(long))
-      * ((unsigned long *) ptr) ^= scramble;
+    char *ptr = buffer;
+    for (; ptr < buffer + rsize; ptr += sizeof(long))
+      *((unsigned long *)ptr) ^= scramble;
   }
 
-  if ((wsize = write(dst, buffer, rsize))==-1) /* should loop? */
+  if ((wsize = write(dst, buffer, rsize)) == -1) /* should loop? */
   {
-    if (verbose) perror("write()");
+    if (verbose)
+      perror("write()");
     return false;
   }
 
-  if (wsize!=rsize)
+  if (wsize != rsize)
   {
     if (verbose)
-      fprintf(stderr, "transmit sizes r=%d w=%d\n", rsize, wsize);
+      fprintf(stderr, "transmit sizes r=%d w=%d\n", (int)rsize, (int)wsize);
     return false;
   }
 
   /* update global and connexion statistics. */
   total_number_of_bytes += rsize;
   total_number_of_events++;
-  if (amount) (*amount) += rsize;
-  if (n) (*n)++;
+  if (amount)
+    (*amount) += rsize;
+  if (n)
+    (*n)++;
 
-  if (debug) fprintf(stderr, "transmit done\n");
+  if (debug)
+    fprintf(stderr, "transmit done\n");
 
   return true;
 }
 
 /* transmit data <-> for a connexion, and set fd_set as needed. */
 static void transmit_connexion(
-    struct socket_connexion * scp,
-    fd_set * ptoread,
-    fd_set * ptowrite,
-    fd_set * ptoexcept,
-    int * n)
+    struct socket_connexion *scp,
+    fd_set *ptoread,
+    fd_set *ptowrite,
+    fd_set *ptoexcept,
+    unsigned int *n)
 {
-  int client = scp->client, dest = scp-> dest; /* saved as may be cleared */
+  int client = scp->client, dest = scp->dest; /* saved as may be cleared */
 
   if (FD_ISSET(client, ptoread))
     scp->client_r = true;
@@ -580,25 +529,17 @@ static void transmit_connexion(
 
   if (debug)
     fprintf(stderr, "IN transmit_connexion() of #%d (%d/%d%d,%d/%d%d)\n",
-	    scp->index,
-	    scp->client, scp->client_r, scp->client_w,
-	    scp->dest, scp->dest_r, scp->dest_w);
+            scp->index,
+            scp->client, scp->client_r, scp->client_w,
+            scp->dest, scp->dest_r, scp->dest_w);
 
   if (scp->open && scp->client_r && scp->dest_w)
   {
-    if(!transmit(client, dest, &scp->requests, &scp->nreq,
+    if (!transmit(client, dest, &scp->requests, &scp->nreq,
 
-#if defined(MAY_SNOOP_TRAFFIC)
+                  snoop ? scp : NULL
 
-		 snoop? scp: NULL
-
-#else
-
-		 NULL
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
-		 ))
+                  ))
       shutdown_connexion(scp, "close[client]");
 
     scp->client_r = false;
@@ -611,7 +552,7 @@ static void transmit_connexion(
     if (scp->open && scp->dest_r && scp->client_w)
     {
       if (!transmit(dest, client, &scp->responses, &scp->nres, NULL))
-	shutdown_connexion(scp, "close[dest]");
+        shutdown_connexion(scp, "close[dest]");
 
       scp->dest_r = false;
       scp->client_w = false;
@@ -637,21 +578,23 @@ static void transmit_connexion(
     {
       if (scp->dest_r)
       {
-	FD_CLR(dest, ptoread);
-	FD_SET(client, ptowrite);
+        FD_CLR(dest, ptoread);
+        FD_SET(client, ptowrite);
       }
       else
       {
-	FD_SET(dest, ptoread);
-	FD_CLR(client, ptowrite);
+        FD_SET(dest, ptoread);
+        FD_CLR(client, ptowrite);
       }
     }
 
     FD_SET(dest, ptoexcept);
     FD_SET(client, ptoexcept);
 
-    if (*n<client) *n = client;
-    if (*n<dest) *n = dest;
+    if (*n < client)
+      *n = client;
+    if (*n < dest)
+      *n = dest;
   }
   else
   {
@@ -664,9 +607,9 @@ static void transmit_connexion(
 
   if (debug)
     fprintf(stderr, "OUT transmit_connexion() of #%d (%d/%d%d,%d/%d%d)\n",
-	    scp->index,
-	    scp->client, scp->client_r, scp->client_w,
-	    scp->dest, scp->dest_r, scp->dest_w);
+            scp->index,
+            scp->client, scp->client_r, scp->client_w,
+            scp->dest, scp->dest_r, scp->dest_w);
 }
 
 /******************************************************************** STATUS */
@@ -679,37 +622,38 @@ static void info(int sig)
   struct timeval tv;
   int i;
 
-  if (silent) return; /* we don't care now and latter. */
+  if (silent)
+    return; /* we don't care now and latter. */
 
   gettimeofday(&tv, NULL);
 
   fprintf(stderr,
-	  LOG "status at %ld.%06ld: #con=%d/%d, #bytes=%d, #events=%d\n",
-	  pid, tv.tv_sec, tv.tv_usec,
-	  number_of_connexions, total_number_of_connexions,
-	  total_number_of_bytes, total_number_of_events);
+          LOG "status at %ld.%06ld: #con=%d/%d, #bytes=%d, #events=%d\n",
+          pid, tv.tv_sec, tv.tv_usec,
+          number_of_connexions, total_number_of_connexions,
+          total_number_of_bytes, total_number_of_events);
 
-  for (i=0; i<max_index_of_connexions; i++)
+  for (i = 0; i < max_index_of_connexions; i++)
   {
-    struct socket_connexion * p = &connexions[i];
+    struct socket_connexion *p = &connexions[i];
     if (p->open)
     {
-      fprintf(stderr, LOG
-	      "#%d (%d/%d%d,%d/%d%d):"
-	      " 0x%08x:%d(e=%d,b=%d)/0x%08x:%d(e=%d,b=%d)\n",
-	      pid, i,
-	      p->client, p->client_r, p->client_w,
-	      p->dest, p->dest_r, p->dest_w,
-	      ntohl(p->client_addr.sin_addr.s_addr),
-	      ntohs(p->client_addr.sin_port),
-	      p->nreq, p->requests,
-	      ntohl(p->dest_addr.sin_addr.s_addr),
-	      ntohs(p->dest_addr.sin_port),
-	      p->nres, p->responses);
+      fprintf(stderr, LOG "#%d (%d/%d%d,%d/%d%d):"
+                          " 0x%08x:%d(e=%d,b=%d)/0x%08x:%d(e=%d,b=%d)\n",
+              pid, i,
+              p->client, p->client_r, p->client_w,
+              p->dest, p->dest_r, p->dest_w,
+              ntohl(p->client_addr.sin_addr.s_addr),
+              ntohs(p->client_addr.sin_port),
+              p->nreq, p->requests,
+              ntohl(p->dest_addr.sin_addr.s_addr),
+              ntohs(p->dest_addr.sin_port),
+              p->nres, p->responses);
     }
   }
 
-  if (sig) signal(sig, info); /* rearm signal (linux, not as BSD) */
+  if (sig)
+    signal(sig, info); /* rearm signal (linux, not as BSD) */
 }
 
 #endif /* SIGNAL_TO_STATUS */
@@ -723,7 +667,7 @@ static void down(int sig)
 
   if (log)
     fprintf(stderr, LOG "down (signal=%d) at %ld.%06ld\n",
-	    pid, sig, tv.tv_sec, tv.tv_usec);
+            pid, sig, tv.tv_sec, tv.tv_usec);
 
 #if defined(SIGNAL_TO_STATUS)
 
@@ -731,63 +675,68 @@ static void down(int sig)
 
 #endif /* SIGNAL_TO_STATUS */
 
-  for (i=0; i<max_connexions; i++)
+  for (i = 0; i < max_connexions; i++)
     shutdown_connexion(&connexions[i], "close[shutdown]");
   /* shutdown_socket(serv_socket); // no since no connexion. */
 
   fclose(stderr); /* the end. */
 
   /* if (sig) signal(sig, down); // rearm not needed, it's an exit. */
-  exit(sig<<8);
+  exit(sig << 8);
 }
 
 /******************************************************************** SERVER */
 
 #define INCOMING_QUEUE_SIZE 10
 
-static int new_server(struct sockaddr * sa)
+static int new_server(struct sockaddr *sa)
 {
   int sn;
   int one = 1;
 
-  if ((sn = socket(AF_INET, SOCK_STREAM,  0))==-1)
+  if ((sn = socket(AF_INET, SOCK_STREAM, 0)) == -1)
   {
-    if (!silent) perror("server socket()");
+    if (!silent)
+      perror("server socket()");
     exit(1);
   }
 
   /* allow later reuse of the socket (without timeout) */
   if (setsockopt(sn, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int)))
   {
-    if (!silent) perror("setsockopt()");
+    if (!silent)
+      perror("setsockopt()");
     exit(2);
   }
 
   if (bind(sn, sa, sizeof(struct sockaddr)))
   {
-    if (!silent) perror("bind()");
+    if (!silent)
+      perror("bind()");
     exit(3);
   }
 
   if (listen(sn, INCOMING_QUEUE_SIZE))
   {
-    if (!silent) perror("listen()");
+    if (!silent)
+      perror("listen()");
     exit(4);
   }
 
   return sn;
 }
 
-static void dump_fd_set(string name, int n, fd_set * pfds)
+static void dump_fd_set(string name, int n, fd_set *pfds)
 {
   int i;
   fprintf(stderr, "%s: ", name);
-  for (i=0; i<n; i++)
-    if (FD_ISSET(i, pfds)) fprintf(stderr, "%d ", i);
+  for (i = 0; i < n; i++)
+    if (FD_ISSET(i, pfds))
+      fprintf(stderr, "%d ", i);
   fprintf(stderr, "\n");
 }
 
-static void dump_fd_sets(string msg, int n, fd_set * r, fd_set * w, fd_set * e)
+static void dump_fd_sets(string msg, int n, fd_set *r, fd_set *w, fd_set *e)
 {
   fprintf(stderr, "fd set status '%s':\n", msg);
   dump_fd_set("read", n, r);
@@ -798,61 +747,50 @@ static void dump_fd_sets(string msg, int n, fd_set * r, fd_set * w, fd_set * e)
 static void usage(string program, int exitcode)
 {
   fprintf(stderr,
-	  "Usage: %s [-options...] lochost:port [dsthost:port]\n"
-	  "  basic single process TCP/IP tunnel (or echo if no dest)\n"
-	  "\t-d: debug mode (=> verbose)\n"
-	  "\t-h: print this help\n"
-	  "\t-l: log connexion activity to stderr\n"
+          "Usage: %s [-options...] lochost:port [dsthost:port]\n"
+          "  basic single process TCP/IP tunnel (or echo if no dest)\n"
+          "\t-d: debug mode (=> verbose)\n"
+          "\t-h: print this help\n"
+          "\t-l: log connexion activity to stderr\n"
 
-#if defined(MAY_SNOOP_TRAFFIC) /* snoop option help. */
+          /* snoop option help. */
 
-	  "\t-L: log activity stream to stderr (=> log)\n"
-	  "\t-r: log with printable caracters only\n"
-	  "\t-b size: buffer size for -L (default no buffer)\n"
+          "\t-L: log activity stream to stderr (=> log)\n"
+          "\t-r: log with printable caracters only\n"
+          "\t-b size: buffer size for -L (default no buffer)\n"
 
-#endif /* MAY_SNOOP_TRAFFIC */
+          "\t-q: quiet mode (not verbose, this is the default)\n"
+          "\t-s: silent (no output at all, even on errors)\n"
+          "\t-v: verbose mode (=> log)\n"
+          "\t-V: version\n"
+          "\t-M n: maximum number of simultaneous connexions (%d)\n"
+          "\t-x number: optional basic XOR scrambling\n"
+          "\t-p pass: idem, XOR constant based on pass\n"
+          "\t-m msg: insert message as a header to accepted connexions\n"
+          "\tlochost:port local host ip and tcp port to listen\n"
+          "\tdsthost:port tunnel destination host and tcp port\n"
+          "\tor from environment LHOST LPORT DHOST DPORT\n"
+          "\tor defaults: " LHOST ":" LPORT " <chosen local>:" DPORT "\n"
+          "\texample: %s -l localhost:2023 mir:23\n"
+          "\t  (send localhost:2023 packets to mir:23 and log)\n"
 
-	  "\t-q: quiet mode (not verbose, this is the default)\n"
-	  "\t-s: silent (no output at all, even on errors)\n"
-	  "\t-v: verbose mode (=> log)\n"
-	  "\t-V: version\n"
-	  "\t-M n: maximum number of simultaneous connexions (%d)\n"
-	  "\t-x number: optional basic XOR scrambling\n"
-	  "\t-p pass: idem, XOR constant based on pass\n"
-	  "\t-m msg: insert message as a header to accepted connexions\n"
-	  "\tlochost:port local host ip and tcp port to listen\n"
-	  "\tdsthost:port tunnel destination host and tcp port\n"
-	  "\tor from environment LHOST LPORT DHOST DPORT\n"
-	  "\tor defaults: " LHOST ":" LPORT " <chosen local>:" DPORT "\n"
-	  "\texample: %s -l localhost:2023 mir:23\n"
-	  "\t  (send localhost:2023 packets to mir:23 and log)\n"
+          "\texample: %s -Lr localhost:1080 proxy:80\n"
+          "\t  (send localhost:1080 packets to proxy:80 and snoop)\n"
 
-#if defined(MAY_SNOOP_TRAFFIC)
+          ,
+          program, DEFAULT_MAX_CONNEXIONS, program, program
 
-	  "\texample: %s -Lr localhost:1080 proxy:80\n"
-	  "\t  (send localhost:1080 packets to proxy:80 and snoop)\n"
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
-	  , program, DEFAULT_MAX_CONNEXIONS, program
-
-#if defined(MAY_SNOOP_TRAFFIC)
-
-	  , program
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
-	  );
+  );
   exit(exitcode);
 }
 
 /********************************************************** LET'S DO THE JOB */
 
-int main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
-  int client_socket, len, i, code, n, opt;
+  unsigned int client_socket, len, i, code, n, opt;
   unsigned short int lport = 0, dport = 0; /* in_port_t */
-  struct in_addr lhost, dhost;  /* in_addr_t */
+  struct in_addr lhost, dhost;             /* in_addr_t */
   struct sockaddr_in client_addr;
   fd_set toread, towrite, toexcept;
   boolean okay = false;
@@ -862,46 +800,60 @@ int main(int argc, char * argv[])
   /* option management. */
   boolean help = false;
 
-  pid = (int) getpid();
+  pid = (int)getpid();
 
-  while ((opt=getopt(argc, argv,
+  while ((opt = getopt(argc, argv,
 
-#if defined(MAY_SNOOP_TRAFFIC)
+                       "b:Lr" /* snoop options. */
 
-		     "b:Lr" /* snoop options. */
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
-		     "dhlm:M:p:qsvVx:"))!=EOF)
+                       "dhlm:M:p:qsvVx:")) != EOF)
   {
     switch (opt)
     {
-    case 'd': debug = true; /* no break, debug => verbose */
-    case 'v': verbose = true; /* no break, verbose => log */
-    case 'l': log = true; break;
-    case 's': silent = true; opterr = 0; break;
-    case 'q': verbose = false; break;
-
-#if defined(MAY_SNOOP_TRAFFIC)
+    case 'd':
+      debug = true; /* no break, debug => verbose */
+    case 'v':
+      verbose = true; /* no break, verbose => log */
+    case 'l':
+      log = true;
+      break;
+    case 's':
+      silent = true;
+      opterr = 0;
+      break;
+    case 'q':
+      verbose = false;
+      break;
 
       /* snoop-related option management. */
-    case 'L': snoop = true; break;
-    case 'r': printable = true; break;
-    case 'b': snoopsize = strtoul(optarg, NULL, 0); break;
+    case 'L':
+      snoop = true;
+      break;
+    case 'r':
+      printable = true;
+      break;
+    case 'b':
+      snoopsize = strtoul(optarg, NULL, 0);
+      break;
 
-#endif /* MAY_SNOOP_TRAFFIC */
-
-    case 'm': msg = strdup(optarg); break;
-    case 'M': max_connexions = atoi(optarg); break;
-    case 'x': scramble = strtoul(optarg, NULL, 0); break;
+    case 'm':
+      msg = strdup(optarg);
+      break;
+    case 'M':
+      max_connexions = atoi(optarg);
+      break;
+    case 'x':
+      scramble = strtoul(optarg, NULL, 0);
+      break;
     case 'p':
       /* 7 bits left circular shift and a XOR */
       while (*optarg)
-	scramble = LCS(scramble, 7)^(*optarg++);
+        scramble = LCS(scramble, 7) ^ (*optarg++);
       break;
     case 'h':
     case 'V':
-    default: help = true;
+    default:
+      help = true;
     }
   }
 
@@ -912,30 +864,31 @@ int main(int argc, char * argv[])
   /* insure option coherency. */
   if (silent)
   {
-    if (help) exit(7);
+    if (help)
+      exit(7);
     verbose = false;
-    log     = false;
-    help    = false;
-    debug   = false;
+    log = false;
+    help = false;
+    debug = false;
     fclose(stderr); /* one more socket to use! */
   }
 
-#if defined(MAY_SNOOP_TRAFFIC)
+  if (snoopsize)
+    snoop = true;
+  if (snoop)
+    log = true;
 
-  if (snoopsize) snoop = true;
-  if (snoop) log = true;
-
-#endif /* MAY_SNOOP_TRAFFIC */
-
-  if (debug) verbose = true;
-  if (verbose) log = true;
+  if (debug)
+    verbose = true;
+  if (verbose)
+    log = true;
 
   /* arguments: lhost:lport dhost:dport or from environment
    * they should be checked?
    */
-  if (argc==optind)
+  if (argc == optind)
   {
-    okay   = true;
+    okay = true;
 
     /* configure from environment, with defaults. */
     lhosts = getenv("LHOST");
@@ -944,7 +897,7 @@ int main(int argc, char * argv[])
     dports = getenv("DPORT");
   }
 
-  if (argc-optind>=1)
+  if (argc - optind >= 1)
   {
     okay = true;
     echo = true;
@@ -952,33 +905,40 @@ int main(int argc, char * argv[])
     /* local */
     lhosts = argv[optind];
     lports = strchr(lhosts, ':');
-    if (lports) *lports++ = '\0';
+    if (lports)
+      *lports++ = '\0';
   }
 
-  if (argc-optind==2)
+  if (argc - optind == 2)
   {
     okay = true;
     echo = false;
 
     /* destination */
-    dhosts = argv[optind+1];
+    dhosts = argv[optind + 1];
     dports = strchr(dhosts, ':');
-    if (dports) *dports++ = '\0';
+    if (dports)
+      *dports++ = '\0';
   }
 
   /* set default values (as string for homogeneity) if needed.
    */
-  if (!lhosts || !*lhosts) lhosts = LHOST;
-  if (!lports || !*lports) lports = LPORT;
-  if (!dhosts || !*dhosts) dhosts = lhosts;
-  if (!dports || !*dports) dports = DPORT;
+  if (!lhosts || !*lhosts)
+    lhosts = LHOST;
+  if (!lports || !*lports)
+    lports = LPORT;
+  if (!dhosts || !*dhosts)
+    dhosts = lhosts;
+  if (!dports || !*dports)
+    dports = DPORT;
 
   if (okay)
   {
-    struct hostent * he = gethostbyname(lhosts);
+    struct hostent *he = gethostbyname(lhosts);
     if (!he)
     {
-      if (!silent) herror("gethostbyname()");
+      if (!silent)
+        herror("gethostbyname()");
       exit(5);
     }
     lhost.s_addr = *((unsigned int *)he->h_addr_list[0]);
@@ -987,7 +947,8 @@ int main(int argc, char * argv[])
     he = gethostbyname(dhosts);
     if (!he)
     {
-      if (!silent) herror("gethostbyname()");
+      if (!silent)
+        herror("gethostbyname()");
       exit(6);
     }
     dhost.s_addr = *((unsigned int *)he->h_addr_list[0]);
@@ -995,14 +956,16 @@ int main(int argc, char * argv[])
   }
   else /* no or bad configuration. */
   {
-    if (silent) exit(8);
+    if (silent)
+      exit(8);
     help = true;
   }
 
   if (verbose || help)
     fputs("TCP/IP tunnel $Revision: 1.66 $\n", stderr);
 
-  if (help) usage(argv[0], 0);
+  if (help)
+    usage(argv[0], 0);
 
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_port = htons(lport);
@@ -1018,20 +981,20 @@ int main(int argc, char * argv[])
     gettimeofday(&tv, NULL);
     if (echo)
       fprintf(stderr,
-	      LOG "start echo 0x%08x:%d x=0x%08lx at %ld.%06ld\n",
-	      pid,
-	      ntohl(serv_addr.sin_addr.s_addr),
-	      ntohs(serv_addr.sin_port),
-	      scramble, tv.tv_sec, tv.tv_usec);
+              LOG "start echo 0x%08x:%d x=0x%08lx at %ld.%06ld\n",
+              pid,
+              ntohl(serv_addr.sin_addr.s_addr),
+              ntohs(serv_addr.sin_port),
+              scramble, tv.tv_sec, tv.tv_usec);
     else
       fprintf(stderr,
-	      LOG "start tunnel 0x%08x:%d/0x%08x:%d x=0x%08lx at %ld.%06ld\n",
-	      pid,
-	      ntohl(serv_addr.sin_addr.s_addr),
-	      ntohs(serv_addr.sin_port),
-	      ntohl(dest_addr.sin_addr.s_addr),
-	      ntohs(dest_addr.sin_port),
-	      scramble, tv.tv_sec, tv.tv_usec);
+              LOG "start tunnel 0x%08x:%d/0x%08x:%d x=0x%08lx at %ld.%06ld\n",
+              pid,
+              ntohl(serv_addr.sin_addr.s_addr),
+              ntohs(serv_addr.sin_port),
+              ntohl(dest_addr.sin_addr.s_addr),
+              ntohs(dest_addr.sin_port),
+              scramble, tv.tv_sec, tv.tv_usec);
   }
 
 #if defined(SIGNAL_TO_STATUS)
@@ -1040,14 +1003,14 @@ int main(int argc, char * argv[])
 
 #endif /* SIGNAL_TO_STATUS */
 
-  signal(SIGINT,  down);
+  signal(SIGINT, down);
   signal(SIGQUIT, down);
   signal(SIGABRT, down);
   signal(SIGTERM, down);
 
   initialize_connexions();
 
-  serv_socket = new_server((struct sockaddr *) &serv_addr);
+  serv_socket = new_server((struct sockaddr *)&serv_addr);
 
   /* initial file descriptor set */
   FD_ZERO(&toread);
@@ -1055,18 +1018,19 @@ int main(int argc, char * argv[])
   FD_ZERO(&toexcept);
   FD_SET(serv_socket, &toread);
   FD_SET(serv_socket, &toexcept);
-  n = serv_socket+1;
+  n = serv_socket + 1;
 
-  while ((code=select(n, &toread, &towrite, &toexcept, NULL))!=-1 ||
-	 (code==-1 && errno==EINTR) /* allow signals */ ||
-	 true) /* on select errors, let us go on anyway? */
+  while ((code = select(n, &toread, &towrite, &toexcept, NULL)) != -1 ||
+         (code == -1 && errno == EINTR) /* allow signals */ ||
+         true) /* on select errors, let us go on anyway? */
   {
-    if ((code==-1 && errno!=EINTR) && verbose)
+    if ((code == -1 && errno != EINTR) && verbose)
       perror("select()");
 
-    if (code==-1 && errno==EINTR)
+    if (code == -1 && errno == EINTR)
     {
-      if (debug) fprintf(stderr, "zeroing sets after select() interrupt\n");
+      if (debug)
+        fprintf(stderr, "zeroing sets after select() interrupt\n");
       FD_ZERO(&toread);
       FD_ZERO(&towrite);
       FD_ZERO(&toexcept);
@@ -1078,52 +1042,53 @@ int main(int argc, char * argv[])
       fprintf(stderr, "select code=%d\n", code);
     }
 
-    if (code!=-1 && FD_ISSET(serv_socket, &toread))
+    if (code != -1 && FD_ISSET(serv_socket, &toread))
     {
       /* it is a new connexion. */
       total_number_of_events++;
       len = sizeof(struct sockaddr);
 
       client_socket =
-	accept(serv_socket, (struct sockaddr*) &client_addr, &len);
+          accept(serv_socket, (struct sockaddr *)&client_addr, &len);
 
-      if (client_socket==-1 && verbose)
-	perror("accept()"); /* let us ignore... ??? */
+      if (client_socket == -1 && verbose)
+        perror("accept()"); /* let us ignore... ??? */
 
-      if (client_socket>0)
+      if (client_socket > 0)
       {
-	struct socket_connexion * scp = available_connexion();
+        struct socket_connexion *scp = available_connexion();
 
-	if (scp)
-	{
-	  /* should be checked? */
-	  if (msg) write(client_socket, msg, strlen(msg));
+        if (scp)
+        {
+          /* should be checked? */
+          if (msg)
+            write(client_socket, msg, strlen(msg));
 
-	  scp->client      = client_socket;
-	  scp->client_addr = client_addr;
+          scp->client = client_socket;
+          scp->client_addr = client_addr;
 
-	  if (echo)
-	  {
-	    /* back to client */
-	    scp->dest_addr = client_addr;
-	    scp->dest      = client_socket;
-	  }
-	  else
-	  {
-	    /* fixed destination */
-	    scp->dest_addr = dest_addr;
-	    scp->dest      = -1;
-	  }
+          if (echo)
+          {
+            /* back to client */
+            scp->dest_addr = client_addr;
+            scp->dest = client_socket;
+          }
+          else
+          {
+            /* fixed destination */
+            scp->dest_addr = dest_addr;
+            scp->dest = -1;
+          }
 
-	  open_connexion_or_shutdown(scp);
-	}
-	else
-	{
-	  if (log)
-	    fprintf(stderr, LOG "%d client refused, max #connect reached\n",
-		    pid, client_socket);
-	  shutdown_socket(client_socket);
-	}
+          open_connexion_or_shutdown(scp);
+        }
+        else
+        {
+          if (log)
+            fprintf(stderr, LOG "%d client refused, max #connect reached\n",
+                    pid, client_socket);
+          shutdown_socket(client_socket);
+        }
       }
     }
 
@@ -1133,13 +1098,14 @@ int main(int argc, char * argv[])
     n = serv_socket;
 
     /* transmit if needed. maybe the list of open connexions could be kept? */
-    for (i=0; i<max_index_of_connexions; i++)
+    for (i = 0; i < max_index_of_connexions; i++)
       if (connexions[i].open)
-	transmit_connexion(&connexions[i], &toread, &towrite, &toexcept, &n);
+        transmit_connexion(&connexions[i], &toread, &towrite, &toexcept, &n);
 
     n++; /* select() expects the largest socket number + 1 */
 
-    if (debug) dump_fd_sets("before select", n, &toread, &towrite, &toexcept);
+    if (debug)
+      dump_fd_sets("before select", n, &toread, &towrite, &toexcept);
   }
 
   /* if (!silent) perror("select()"); */
